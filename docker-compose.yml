@@ -1,0 +1,79 @@
+# api, worker and beat share one image; postgres and redis are stock images.
+x-app: &app
+  build: .
+  image: deribit-tracker:latest
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    POSTGRES_HOST: postgres
+    REDIS_URL: redis://redis:6379/0
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tracker}
+      POSTGRES_DB: ${POSTGRES_DB:-prices}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot: applies migrations, then exits. Everything else starts after it succeeds.
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ["celery", "-A", "deribit_tracker.worker.main", "worker", "--loglevel=info", "--concurrency=2"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  beat:
+    <<: *app
+    command: ["celery", "-A", "deribit_tracker.worker.main", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

@@ -1,4 +1,4 @@
-.PHONY: install up down logs lint format typecheck test test-unit test-db-up
+.PHONY: install up down logs lint format test test-unit test-db-up test-db-down
 
 TEST_DATABASE_URL ?= postgresql+asyncpg://tracker:tracker@localhost:5433/prices_test
 
@@ -28,6 +28,9 @@ test-unit:
 
 test-db-up:
 	docker compose -f docker-compose.test.yml up -d --wait
+
+test-db-down:
+	docker compose -f docker-compose.test.yml down
 
 test: test-db-up
 	TEST_DATABASE_URL=$(TEST_DATABASE_URL) uv run pytest

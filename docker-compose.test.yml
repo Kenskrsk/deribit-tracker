@@ -1,4 +1,5 @@
 # Throwaway PostgreSQL for integration tests: `make test`.
+name: deribit-tracker-test
 services:
   postgres-test:
     image: postgres:16-alpine
