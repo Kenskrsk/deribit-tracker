@@ -5,7 +5,7 @@ import asyncpg
 import pytest
 from celery import Task
 from celery.exceptions import Retry
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError
 
 from deribit_tracker.clients.deribit import DeribitError, DeribitUnavailableError
 from deribit_tracker.config import Settings
@@ -129,6 +129,7 @@ def test_transient_db_errors_are_recognised(error: Exception) -> None:
     "error",
     [
         wrapped_db_error(asyncpg.exceptions.UniqueViolationError("dup"), IntegrityError),
+        wrapped_db_error(asyncpg.exceptions.DataError("bad encoding"), InterfaceError),
         ValueError("bug"),
     ],
 )

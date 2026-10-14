@@ -3,7 +3,7 @@ from typing import Any
 
 import asyncpg
 from celery import Celery, Task
-from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+from sqlalchemy.exc import DBAPIError
 
 from deribit_tracker.clients.deribit import DeribitUnavailableError
 from deribit_tracker.config import Settings
@@ -15,8 +15,9 @@ RETRY_BASE_DELAY_SECONDS = 5
 MAX_RETRIES = 3
 
 # asyncpg errors meaning "the server cannot serve you right now": starting up or shutting
-# down, out of connection slots, connection dropped. SQLAlchemy wraps them in a generic
-# DBAPIError, so they are recognised by the original error it keeps as `__cause__`.
+# down, out of connection slots, connection dropped. SQLAlchemy wraps them in DBAPIError
+# subclasses that also cover permanent errors (e.g. InterfaceError for bad input encoding),
+# so they are recognised by the original asyncpg error kept as `__cause__`.
 TRANSIENT_ASYNCPG_ERRORS = (
     asyncpg.exceptions.OperatorInterventionError,
     asyncpg.exceptions.InsufficientResourcesError,
@@ -26,7 +27,7 @@ TRANSIENT_ASYNCPG_ERRORS = (
 
 def is_transient_db_error(error: BaseException) -> bool:
     """True for database failures that are worth retrying."""
-    if isinstance(error, OSError | OperationalError | InterfaceError):
+    if isinstance(error, OSError):  # server unreachable: refused, DNS, timeout
         return True
     if isinstance(error, DBAPIError):
         original = error.orig.__cause__ if error.orig is not None else None
