@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
-from deribit_tracker.api.routes import router as prices_router
+from deribit_tracker.api.routes import create_prices_router
 from deribit_tracker.config import Settings
 from deribit_tracker.db.engine import build_engine, build_session_factory
 from deribit_tracker.services.prices import InvalidDateRangeError, PriceNotFoundError
@@ -27,7 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
-    app.include_router(prices_router)
+    app.include_router(create_prices_router())
     _register_error_handlers(app)
 
     @app.get("/health", tags=["service"], summary="Liveness check")
@@ -44,6 +44,8 @@ def _register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(InvalidDateRangeError)
     async def handle_invalid_range(_: Request, error: InvalidDateRangeError) -> JSONResponse:
+        # Same shape as FastAPI's own validation errors, so clients parse one 422 format.
+        detail = [{"type": "value_error", "loc": ["query", "date_from"], "msg": str(error)}]
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content={"detail": str(error)}
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content={"detail": detail}
         )

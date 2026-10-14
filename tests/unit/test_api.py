@@ -119,7 +119,15 @@ async def test_get_prices_by_date_rejects_reversed_range(client: httpx.AsyncClie
     )
 
     assert response.status_code == 422
-    assert response.json() == {"detail": "date_from must not be greater than date_to"}
+    assert response.json() == {
+        "detail": [
+            {
+                "type": "value_error",
+                "loc": ["query", "date_from"],
+                "msg": "date_from must not be greater than date_to",
+            }
+        ]
+    }
 
 
 @pytest.mark.parametrize("bound", ["date_from", "date_to"])
