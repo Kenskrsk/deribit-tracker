@@ -1,3 +1,4 @@
+from sqlalchemy import URL
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 
-def build_engine(database_url: str, *, pooled: bool = True) -> AsyncEngine:
+def build_engine(database_url: str | URL, *, pooled: bool = True) -> AsyncEngine:
     """Create an async engine.
 
     `pooled=False` is used by Celery tasks: each task runs in a fresh event loop

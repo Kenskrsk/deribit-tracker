@@ -5,8 +5,13 @@ x-app: &app
   env_file:
     - path: .env
       required: false
+  # Same credentials as the postgres service below; host and port point inside the network.
   environment:
+    POSTGRES_USER: ${POSTGRES_USER:-tracker}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tracker}
+    POSTGRES_DB: ${POSTGRES_DB:-prices}
     POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
     REDIS_URL: redis://redis:6379/0
   restart: unless-stopped
 

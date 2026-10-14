@@ -19,8 +19,7 @@ def run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    database_url = context.config.get_main_option("sqlalchemy.url") or Settings().database_url
-    engine = build_engine(database_url, pooled=False)
+    engine = build_engine(Settings().database_url, pooled=False)
     async with engine.connect() as connection:
         await connection.run_sync(run_migrations)
     await engine.dispose()
