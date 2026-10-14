@@ -1,16 +1,22 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import asyncpg
 import pytest
 from celery import Task
 from celery.exceptions import Retry
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from deribit_tracker.clients.deribit import DeribitError, DeribitUnavailableError
 from deribit_tracker.config import Settings
 from deribit_tracker.domain import Ticker
 from deribit_tracker.services.collector import CollectionResult
 from deribit_tracker.worker import celery_app as celery_app_module
-from deribit_tracker.worker.celery_app import COLLECT_TASK_NAME, create_celery_app
+from deribit_tracker.worker.celery_app import (
+    COLLECT_TASK_NAME,
+    create_celery_app,
+    is_transient_db_error,
+)
 from tests.fakes import snapshot
 
 
@@ -97,3 +103,44 @@ def test_does_not_retry_non_transient_errors(monkeypatch: pytest.MonkeyPatch) ->
 
     retry.assert_not_called()
     assert outcome == {"saved": [], "failed": {"btc_usd": "bad payload"}}
+
+
+def wrapped_db_error(cause: Exception, error_class: type[DBAPIError] = DBAPIError) -> DBAPIError:
+    """Mimic SQLAlchemy's asyncpg dialect: the original error is kept as orig.__cause__."""
+    orig = Exception(str(cause))
+    orig.__cause__ = cause
+    return error_class("INSERT ...", None, orig)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionRefusedError("refused"),
+        wrapped_db_error(asyncpg.exceptions.CannotConnectNowError("starting up")),
+        wrapped_db_error(asyncpg.exceptions.TooManyConnectionsError("no slots")),
+        wrapped_db_error(asyncpg.exceptions.ConnectionDoesNotExistError("closed")),
+    ],
+)
+def test_transient_db_errors_are_recognised(error: Exception) -> None:
+    assert is_transient_db_error(error)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        wrapped_db_error(asyncpg.exceptions.UniqueViolationError("dup"), IntegrityError),
+        ValueError("bug"),
+    ],
+)
+def test_permanent_errors_are_not_treated_as_transient(error: Exception) -> None:
+    assert not is_transient_db_error(error)
+
+
+def test_permanent_db_error_fails_the_task_without_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    error = wrapped_db_error(asyncpg.exceptions.UniqueViolationError("dup"), IntegrityError)
+    task, _ = build_task(monkeypatch, error)
+
+    with patch.object(task, "retry") as retry, pytest.raises(IntegrityError):
+        task.run()
+
+    retry.assert_not_called()

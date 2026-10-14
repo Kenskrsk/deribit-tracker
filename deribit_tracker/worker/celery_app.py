@@ -1,8 +1,9 @@
 import asyncio
 from typing import Any
 
+import asyncpg
 from celery import Celery, Task
-from sqlalchemy.exc import InterfaceError, OperationalError
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 
 from deribit_tracker.clients.deribit import DeribitUnavailableError
 from deribit_tracker.config import Settings
@@ -13,8 +14,24 @@ COLLECT_TASK_NAME = "deribit_tracker.collect_index_prices"
 RETRY_BASE_DELAY_SECONDS = 5
 MAX_RETRIES = 3
 
-# Database unreachable (OSError from asyncpg) or connection lost mid-transaction.
-TRANSIENT_DB_ERRORS = (OSError, OperationalError, InterfaceError)
+# asyncpg errors meaning "the server cannot serve you right now": starting up or shutting
+# down, out of connection slots, connection dropped. SQLAlchemy wraps them in a generic
+# DBAPIError, so they are recognised by the original error it keeps as `__cause__`.
+TRANSIENT_ASYNCPG_ERRORS = (
+    asyncpg.exceptions.OperatorInterventionError,
+    asyncpg.exceptions.InsufficientResourcesError,
+    asyncpg.exceptions.PostgresConnectionError,
+)
+
+
+def is_transient_db_error(error: BaseException) -> bool:
+    """True for database failures that are worth retrying."""
+    if isinstance(error, OSError | OperationalError | InterfaceError):
+        return True
+    if isinstance(error, DBAPIError):
+        original = error.orig.__cause__ if error.orig is not None else None
+        return error.connection_invalidated or isinstance(original, TRANSIENT_ASYNCPG_ERRORS)
+    return False
 
 
 def create_celery_app(settings: Settings) -> Celery:
@@ -40,7 +57,9 @@ def create_celery_app(settings: Settings) -> Celery:
         requested = [Ticker(value) for value in tickers] if tickers else list(Ticker)
         try:
             result = asyncio.run(run_collection(settings, requested))
-        except TRANSIENT_DB_ERRORS as error:
+        except Exception as error:
+            if not is_transient_db_error(error):
+                raise
             # The transaction was rolled back, so nothing was saved: retry every ticker.
             raise _retry(task, requested, error) from error
 
