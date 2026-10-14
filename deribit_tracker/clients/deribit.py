@@ -53,7 +53,7 @@ class DeribitClient:
             async with self._session.get(url, params=params) as response:
                 if response.status >= 500 or response.status in RETRYABLE_STATUSES:
                     raise DeribitUnavailableError(f"Deribit returned HTTP {response.status}")
-                body = await response.text()
+                body = await response.read()
         except (aiohttp.ClientError, TimeoutError) as error:
             raise DeribitUnavailableError(f"Deribit request failed: {error!r}") from error
 

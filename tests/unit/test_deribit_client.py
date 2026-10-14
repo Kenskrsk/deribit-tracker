@@ -72,11 +72,13 @@ async def test_json_rpc_error_raises_deribit_error(
     assert not isinstance(caught.value, DeribitUnavailableError)
 
 
-@pytest.mark.parametrize("body", ['{"result": {}}', '{"jsonrpc": "2.0"}', "not json", "[]"])
+@pytest.mark.parametrize(
+    "body", [b'{"result": {}}', b'{"jsonrpc": "2.0"}', b"not json", b"[]", b"\xff\xfe\xfa"]
+)
 async def test_unexpected_payload_raises_deribit_error(
-    client: DeribitClient, fake_deribit: FakeDeribit, body: str
+    client: DeribitClient, fake_deribit: FakeDeribit, body: bytes
 ) -> None:
-    fake_deribit.response = web.Response(text=body, content_type="application/json")
+    fake_deribit.response = web.Response(body=body, content_type="application/json")
 
     with pytest.raises(DeribitError):
         await client.get_index_price(Ticker.BTC_USD)
