@@ -82,8 +82,11 @@ async def test_unexpected_payload_raises_deribit_error(
         await client.get_index_price(Ticker.BTC_USD)
 
 
-async def test_server_error_is_retryable(client: DeribitClient, fake_deribit: FakeDeribit) -> None:
-    fake_deribit.response = web.Response(status=503)
+@pytest.mark.parametrize("status", [408, 429, 500, 503])
+async def test_temporary_http_errors_are_retryable(
+    client: DeribitClient, fake_deribit: FakeDeribit, status: int
+) -> None:
+    fake_deribit.response = web.Response(status=status)
 
     with pytest.raises(DeribitUnavailableError):
         await client.get_index_price(Ticker.BTC_USD)

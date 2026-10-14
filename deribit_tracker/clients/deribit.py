@@ -12,7 +12,11 @@ class DeribitError(Exception):
 
 
 class DeribitUnavailableError(DeribitError):
-    """Deribit could not be reached (network error, timeout, 5xx). Worth retrying."""
+    """Deribit could not be reached (network error, timeout, 5xx, rate limit). Worth retrying."""
+
+
+# Statuses that describe a temporary condition rather than a bad request.
+RETRYABLE_STATUSES = frozenset({408, 429})
 
 
 class DeribitClient:
@@ -35,7 +39,7 @@ class DeribitClient:
         url = f"{self._base_url}/{method}"
         try:
             async with self._session.get(url, params=params) as response:
-                if response.status >= 500:
+                if response.status >= 500 or response.status in RETRYABLE_STATUSES:
                     raise DeribitUnavailableError(f"Deribit returned HTTP {response.status}")
                 body = await response.text()
         except (aiohttp.ClientError, TimeoutError) as error:
