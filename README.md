@@ -1,5 +1,7 @@
 # Deribit Price Tracker
 
+[![CI](https://github.com/Kenskrsk/deribit-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/Kenskrsk/deribit-tracker/actions/workflows/ci.yml)
+
 Сервис раз в минуту забирает с криптобиржи [Deribit](https://docs.deribit.com/) индексную цену
 `btc_usd` и `eth_usd`, сохраняет её в PostgreSQL и отдаёт сохранённые данные через HTTP API на FastAPI.
 
@@ -58,7 +60,7 @@ tests/integration/       # репозиторий на настоящем Postgr
 Нужны Docker и Docker Compose v2 (команда `docker compose`).
 
 ```bash
-git clone <repo-url> deribit-tracker
+git clone https://github.com/Kenskrsk/deribit-tracker.git
 cd deribit-tracker
 docker compose up --build -d
 ```
