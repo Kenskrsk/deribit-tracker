@@ -23,6 +23,7 @@ class CollectionResult:
 class PriceCollector:
     """Fetches index prices for several tickers concurrently and stores the successful ones.
 
+    All snapshots of one run share the timestamp of the moment the run started.
     A failure for one ticker does not prevent the others from being saved;
     failed tickers are reported back so the caller can decide whether to retry them.
     """
@@ -38,8 +39,9 @@ class PriceCollector:
         self._clock = clock
 
     async def collect(self, tickers: Sequence[Ticker]) -> CollectionResult:
+        fetched_at = self._clock()
         outcomes = await asyncio.gather(
-            *(self._fetch(ticker) for ticker in tickers), return_exceptions=True
+            *(self._fetch(ticker, fetched_at) for ticker in tickers), return_exceptions=True
         )
 
         result = CollectionResult()
@@ -56,6 +58,6 @@ class PriceCollector:
             await self._writer.add_many(result.saved)
         return result
 
-    async def _fetch(self, ticker: Ticker) -> PriceSnapshot:
+    async def _fetch(self, ticker: Ticker, fetched_at: int) -> PriceSnapshot:
         price = await self._source.get_index_price(ticker)
-        return PriceSnapshot(ticker=ticker, price=price, timestamp=self._clock())
+        return PriceSnapshot(ticker=ticker, price=price, timestamp=fetched_at)

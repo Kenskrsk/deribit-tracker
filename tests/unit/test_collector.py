@@ -26,6 +26,19 @@ async def test_saves_all_tickers_with_fetch_time() -> None:
     assert result.failed == {}
 
 
+async def test_all_snapshots_of_one_run_share_one_timestamp() -> None:
+    ticks = iter([NOW, NOW + 7])
+    repository = InMemoryPriceRepository()
+    source = StubPriceSource(
+        {Ticker.BTC_USD: Decimal("81747.9"), Ticker.ETH_USD: Decimal("2434.47")}
+    )
+    collector = PriceCollector(source, repository, clock=lambda: next(ticks))
+
+    await collector.collect(list(Ticker))
+
+    assert {item.timestamp for item in repository.snapshots} == {NOW}
+
+
 async def test_one_failing_ticker_does_not_block_the_other() -> None:
     error = DeribitUnavailableError("timeout")
     repository = InMemoryPriceRepository()
