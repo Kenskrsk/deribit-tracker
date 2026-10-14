@@ -17,7 +17,7 @@ logs:
 lint:
 	uv run ruff check .
 	uv run ruff format --check .
-	uv run mypy deribit_tracker
+	uv run mypy deribit_tracker tests
 
 format:
 	uv run ruff check --fix .
