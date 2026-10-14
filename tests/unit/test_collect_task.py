@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -9,23 +10,21 @@ from deribit_tracker.config import Settings
 from deribit_tracker.domain import Ticker
 from deribit_tracker.services.collector import CollectionResult
 from deribit_tracker.worker import celery_app as celery_app_module
-from deribit_tracker.worker.celery_app import (
-    COLLECT_TASK_NAME,
-    RETRY_DELAY_SECONDS,
-    create_celery_app,
-)
+from deribit_tracker.worker.celery_app import COLLECT_TASK_NAME, create_celery_app
 from tests.fakes import snapshot
 
 
 def build_task(
-    monkeypatch: pytest.MonkeyPatch, result: CollectionResult
+    monkeypatch: pytest.MonkeyPatch, outcome: CollectionResult | Exception
 ) -> tuple[Task, list[list[Ticker]]]:
     """The collection task with `run_collection` replaced; also returns the tickers it got."""
     requested: list[list[Ticker]] = []
 
     async def fake_run_collection(_: Settings, tickers: list[Ticker]) -> CollectionResult:
         requested.append(tickers)
-        return result
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
     monkeypatch.setattr(celery_app_module, "run_collection", fake_run_collection)
     task: Task = create_celery_app(Settings()).tasks[COLLECT_TASK_NAME]
@@ -42,7 +41,7 @@ def test_collects_all_tickers_by_default(monkeypatch: pytest.MonkeyPatch) -> Non
     assert outcome == {"saved": ["btc_usd", "eth_usd"], "failed": {}}
 
 
-def test_retries_only_unavailable_tickers(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_retries_only_unavailable_tickers_without_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
     error = DeribitUnavailableError("timeout")
     result = CollectionResult(
         saved=[snapshot(Ticker.ETH_USD, "2", 1)], failed={Ticker.BTC_USD: error}
@@ -53,7 +52,39 @@ def test_retries_only_unavailable_tickers(monkeypatch: pytest.MonkeyPatch) -> No
         task.run()
 
     retry.assert_called_once_with(
-        kwargs={"tickers": ["btc_usd"]}, countdown=RETRY_DELAY_SECONDS, exc=error
+        kwargs={"tickers": ["btc_usd"]}, countdown=5, exc=error, expires=None
+    )
+
+
+@pytest.mark.parametrize(("attempt", "expected_delay"), [(0, 5), (1, 10), (2, 20)])
+def test_retry_delay_grows_exponentially(
+    monkeypatch: pytest.MonkeyPatch, attempt: int, expected_delay: int
+) -> None:
+    result = CollectionResult(failed={Ticker.BTC_USD: DeribitUnavailableError("down")})
+    task, _ = build_task(monkeypatch, result)
+    request = SimpleNamespace(retries=attempt)
+
+    with (
+        patch.object(type(task), "request", request),
+        patch.object(task, "retry", side_effect=Retry()) as retry,
+        pytest.raises(Retry),
+    ):
+        task.run()
+
+    assert retry.call_args.kwargs["countdown"] == expected_delay
+
+
+def test_retries_all_tickers_when_database_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    error = ConnectionRefusedError("database is down")
+    task, _ = build_task(monkeypatch, error)
+
+    with patch.object(task, "retry", side_effect=Retry()) as retry, pytest.raises(Retry):
+        task.run()
+
+    retry.assert_called_once_with(
+        kwargs={"tickers": ["btc_usd", "eth_usd"]}, countdown=5, exc=error, expires=None
     )
 
 

@@ -2,6 +2,7 @@ import asyncio
 from typing import Any
 
 from celery import Celery, Task
+from sqlalchemy.exc import InterfaceError, OperationalError
 
 from deribit_tracker.clients.deribit import DeribitUnavailableError
 from deribit_tracker.config import Settings
@@ -9,8 +10,11 @@ from deribit_tracker.domain import Ticker
 from deribit_tracker.worker.collection import run_collection
 
 COLLECT_TASK_NAME = "deribit_tracker.collect_index_prices"
-RETRY_DELAY_SECONDS = 5
+RETRY_BASE_DELAY_SECONDS = 5
 MAX_RETRIES = 3
+
+# Database unreachable (OSError from asyncpg) or connection lost mid-transaction.
+TRANSIENT_DB_ERRORS = (OSError, OperationalError, InterfaceError)
 
 
 def create_celery_app(settings: Settings) -> Celery:
@@ -34,7 +38,11 @@ def create_celery_app(settings: Settings) -> Celery:
     @app.task(name=COLLECT_TASK_NAME, bind=True, max_retries=MAX_RETRIES)  # type: ignore[untyped-decorator]
     def collect_index_prices(task: Task, tickers: list[str] | None = None) -> dict[str, Any]:
         requested = [Ticker(value) for value in tickers] if tickers else list(Ticker)
-        result = asyncio.run(run_collection(settings, requested))
+        try:
+            result = asyncio.run(run_collection(settings, requested))
+        except TRANSIENT_DB_ERRORS as error:
+            # The transaction was rolled back, so nothing was saved: retry every ticker.
+            raise _retry(task, requested, error) from error
 
         retryable = {
             ticker: error
@@ -43,14 +51,23 @@ def create_celery_app(settings: Settings) -> Celery:
         }
         if retryable:
             # Retry only the tickers that failed, so already saved prices are not duplicated.
-            raise task.retry(
-                kwargs={"tickers": [ticker.value for ticker in retryable]},
-                countdown=RETRY_DELAY_SECONDS,
-                exc=next(iter(retryable.values())),
-            )
+            raise _retry(task, list(retryable), next(iter(retryable.values())))
         return {
             "saved": [snapshot.ticker.value for snapshot in result.saved],
             "failed": {ticker.value: str(error) for ticker, error in result.failed.items()},
         }
 
     return app
+
+
+def _retry(task: Task, tickers: list[Ticker], error: Exception) -> Exception:
+    """Schedule a retry for `tickers` with exponential backoff (5 s, 10 s, 20 s)."""
+    retry: Exception = task.retry(
+        kwargs={"tickers": [ticker.value for ticker in tickers]},
+        countdown=RETRY_BASE_DELAY_SECONDS * 2**task.request.retries,
+        exc=error,
+        # Celery copies the original absolute `expires` into retries; a retry scheduled
+        # after that moment would be silently discarded, so retries do not expire.
+        expires=None,
+    )
+    return retry
