@@ -79,6 +79,9 @@ docker compose up --build -d
 docker compose ps                       # migrate — Exited (0), остальные — Up
 docker compose logs -f worker           # каждую минуту: Task ... succeeded
 curl "http://localhost:8000/prices/latest?ticker=btc_usd"
+
+# заглянуть в базу (порт PostgreSQL наружу не открыт, чтобы не конфликтовать с локальным)
+docker compose exec postgres psql -U tracker -d prices -c "select * from prices order by id desc limit 5"
 ```
 
 Документация API (Swagger): <http://localhost:8000/docs>.
