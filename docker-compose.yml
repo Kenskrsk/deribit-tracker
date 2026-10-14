@@ -2,10 +2,8 @@
 x-app: &app
   build: .
   image: deribit-tracker:latest
-  env_file:
-    - path: .env
-      required: false
-  # Same credentials as the postgres service below; host and port point inside the network.
+  # Values come from .env or the shell (Compose reads .env automatically), with defaults.
+  # Credentials match the postgres service below; host and port point inside the network.
   environment:
     POSTGRES_USER: ${POSTGRES_USER:-tracker}
     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tracker}
@@ -13,6 +11,9 @@ x-app: &app
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
     REDIS_URL: redis://redis:6379/0
+    DERIBIT_BASE_URL: ${DERIBIT_BASE_URL:-https://www.deribit.com/api/v2}
+    DERIBIT_REQUEST_TIMEOUT_SECONDS: ${DERIBIT_REQUEST_TIMEOUT_SECONDS:-10}
+    FETCH_INTERVAL_SECONDS: ${FETCH_INTERVAL_SECONDS:-60}
   restart: unless-stopped
 
 services:
@@ -25,7 +26,8 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      # -h forces TCP: during first-start initialisation Postgres listens on the unix socket only.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
       timeout: 3s
       retries: 20
