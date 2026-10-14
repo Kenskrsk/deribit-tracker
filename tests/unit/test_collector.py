@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from deribit_tracker.clients.deribit import DeribitUnavailableError
 from deribit_tracker.domain import Ticker
 from deribit_tracker.services.collector import PriceCollector
@@ -60,3 +62,16 @@ async def test_nothing_written_when_everything_fails() -> None:
 
     assert repository.snapshots == []
     assert set(result.failed) == set(Ticker)
+
+
+async def test_unexpected_errors_are_not_swallowed() -> None:
+    repository = InMemoryPriceRepository()
+    source = StubPriceSource(
+        {Ticker.BTC_USD: RuntimeError("bug"), Ticker.ETH_USD: Decimal("2434.47")}
+    )
+    collector = PriceCollector(source, repository, clock=lambda: NOW)
+
+    with pytest.raises(RuntimeError, match="bug"):
+        await collector.collect(list(Ticker))
+
+    assert repository.snapshots == []

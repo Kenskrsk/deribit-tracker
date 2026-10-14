@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
+from deribit_tracker.clients.deribit import DeribitError
 from deribit_tracker.domain import PriceSnapshot, Ticker
 from deribit_tracker.services.ports import PriceSource, PriceWriter
 
@@ -17,7 +18,7 @@ def current_unix_time() -> int:
 @dataclass(frozen=True, slots=True)
 class CollectionResult:
     saved: list[PriceSnapshot] = field(default_factory=list)
-    failed: dict[Ticker, Exception] = field(default_factory=dict)
+    failed: dict[Ticker, DeribitError] = field(default_factory=dict)
 
 
 class PriceCollector:
@@ -48,10 +49,11 @@ class PriceCollector:
         for ticker, outcome in zip(tickers, outcomes, strict=True):
             if isinstance(outcome, PriceSnapshot):
                 result.saved.append(outcome)
-            elif isinstance(outcome, Exception):
+            elif isinstance(outcome, DeribitError):
                 logger.warning("Failed to fetch %s: %s", ticker, outcome)
                 result.failed[ticker] = outcome
             else:
+                # Anything else is a bug, not an exchange problem: let it fail loudly.
                 raise outcome
 
         if result.saved:

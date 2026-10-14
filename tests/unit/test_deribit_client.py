@@ -105,3 +105,22 @@ async def test_connection_error_is_retryable() -> None:
 
         with pytest.raises(DeribitUnavailableError):
             await client.get_index_price(Ticker.BTC_USD)
+
+
+@pytest.mark.parametrize("code", [10028, 10040, 10066, 11051, 13028, 13888])
+async def test_temporary_json_rpc_errors_are_retryable(
+    client: DeribitClient, fake_deribit: FakeDeribit, code: int
+) -> None:
+    fake_deribit.response = web.json_response({"error": {"code": code, "message": "busy"}})
+
+    with pytest.raises(DeribitUnavailableError):
+        await client.get_index_price(Ticker.BTC_USD)
+
+
+async def test_non_numeric_price_raises_deribit_error(
+    client: DeribitClient, fake_deribit: FakeDeribit
+) -> None:
+    fake_deribit.response = web.json_response({"result": {"index_price": "n/a"}})
+
+    with pytest.raises(DeribitError):
+        await client.get_index_price(Ticker.BTC_USD)
