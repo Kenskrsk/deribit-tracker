@@ -4,17 +4,22 @@ from fastapi import APIRouter, Query
 
 from deribit_tracker.api.dependencies import PriceServiceDep
 from deribit_tracker.api.schemas import ErrorResponse, PriceResponse
-from deribit_tracker.domain import Ticker
+from deribit_tracker.domain import PriceSnapshot, Ticker
+
+# Values above this do not fit PostgreSQL BIGINT and would fail inside the query.
+MAX_BIGINT = 2**63 - 1
 
 TickerQuery = Annotated[Ticker, Query(description="Currency pair, e.g. btc_usd")]
 LimitQuery = Annotated[
     int | None, Query(ge=1, le=10_000, description="Max records to return; omit to get all")
 ]
-OffsetQuery = Annotated[int, Query(ge=0, description="Records to skip")]
+OffsetQuery = Annotated[int, Query(ge=0, le=MAX_BIGINT, description="Records to skip")]
 DateFromQuery = Annotated[
-    int | None, Query(ge=0, description="Range start, UNIX seconds, inclusive")
+    int | None, Query(ge=0, le=MAX_BIGINT, description="Range start, UNIX seconds, inclusive")
 ]
-DateToQuery = Annotated[int | None, Query(ge=0, description="Range end, UNIX seconds, inclusive")]
+DateToQuery = Annotated[
+    int | None, Query(ge=0, le=MAX_BIGINT, description="Range end, UNIX seconds, inclusive")
+]
 
 router = APIRouter(prefix="/prices", tags=["prices"])
 
@@ -25,10 +30,9 @@ async def get_prices(
     service: PriceServiceDep,
     limit: LimitQuery = None,
     offset: OffsetQuery = 0,
-) -> list[PriceResponse]:
+) -> list[PriceSnapshot]:
     """Prices in chronological order. Pagination is optional."""
-    snapshots = await service.get_history(ticker, limit=limit, offset=offset)
-    return [PriceResponse.model_validate(snapshot) for snapshot in snapshots]
+    return await service.get_history(ticker, limit=limit, offset=offset)
 
 
 @router.get(
@@ -37,9 +41,8 @@ async def get_prices(
     response_model=PriceResponse,
     responses={404: {"model": ErrorResponse, "description": "No prices stored yet"}},
 )
-async def get_latest_price(ticker: TickerQuery, service: PriceServiceDep) -> PriceResponse:
-    snapshot = await service.get_latest(ticker)
-    return PriceResponse.model_validate(snapshot)
+async def get_latest_price(ticker: TickerQuery, service: PriceServiceDep) -> PriceSnapshot:
+    return await service.get_latest(ticker)
 
 
 @router.get(
@@ -55,9 +58,8 @@ async def get_prices_by_date(
     date_to: DateToQuery = None,
     limit: LimitQuery = None,
     offset: OffsetQuery = 0,
-) -> list[PriceResponse]:
+) -> list[PriceSnapshot]:
     """Prices with `date_from <= timestamp <= date_to`. Either bound may be omitted."""
-    snapshots = await service.get_by_date_range(
+    return await service.get_by_date_range(
         ticker, date_from=date_from, date_to=date_to, limit=limit, offset=offset
     )
-    return [PriceResponse.model_validate(snapshot) for snapshot in snapshots]

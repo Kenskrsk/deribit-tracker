@@ -71,7 +71,7 @@ async def test_get_prices_paginates(client: httpx.AsyncClient) -> None:
     assert [item["timestamp"] for item in response.json()] == [1_060, 1_120]
 
 
-@pytest.mark.parametrize("params", [{"limit": 0}, {"offset": -1}])
+@pytest.mark.parametrize("params", [{"limit": 0}, {"offset": -1}, {"offset": 2**63}])
 async def test_get_prices_rejects_bad_pagination(
     client: httpx.AsyncClient, params: dict[str, int]
 ) -> None:
@@ -120,3 +120,12 @@ async def test_get_prices_by_date_rejects_reversed_range(client: httpx.AsyncClie
 
     assert response.status_code == 422
     assert response.json() == {"detail": "date_from must not be greater than date_to"}
+
+
+@pytest.mark.parametrize("bound", ["date_from", "date_to"])
+async def test_get_prices_by_date_rejects_out_of_range_timestamp(
+    client: httpx.AsyncClient, bound: str
+) -> None:
+    response = await client.get("/prices/by-date", params={"ticker": "btc_usd", bound: 2**63})
+
+    assert response.status_code == 422
