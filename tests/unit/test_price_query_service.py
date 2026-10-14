@@ -61,3 +61,13 @@ async def test_date_range_is_inclusive(service: PriceQueryService) -> None:
 async def test_date_range_rejects_reversed_bounds(service: PriceQueryService) -> None:
     with pytest.raises(InvalidDateRangeError):
         await service.get_by_date_range(BTC, date_from=180, date_to=60)
+
+
+async def test_latest_prefers_last_inserted_on_equal_timestamps() -> None:
+    service = PriceQueryService(
+        InMemoryPriceRepository([snapshot(BTC, "1", 60), snapshot(BTC, "2", 60)])
+    )
+
+    latest = await service.get_latest(BTC)
+
+    assert latest.price == snapshot(BTC, "2", 60).price

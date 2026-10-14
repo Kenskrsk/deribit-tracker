@@ -36,7 +36,8 @@ class InMemoryPriceRepository:
         return matching[offset:end]
 
     async def get_latest(self, ticker: Ticker) -> PriceSnapshot | None:
-        matching = [item for item in self.snapshots if item.ticker == ticker]
+        # Like ORDER BY timestamp DESC, id DESC: on equal timestamps the last inserted wins.
+        matching = [item for item in reversed(self.snapshots) if item.ticker == ticker]
         return max(matching, key=lambda item: item.timestamp) if matching else None
 
 

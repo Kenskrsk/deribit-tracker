@@ -67,3 +67,12 @@ async def test_price_precision_is_preserved(db_session: AsyncSession) -> None:
 
     assert latest is not None
     assert latest.price == Decimal("81747.12345678")
+
+
+async def test_latest_prefers_last_inserted_on_equal_timestamps(db_session: AsyncSession) -> None:
+    repo = PriceRepository(db_session)
+    await repo.add_many([snapshot(BTC, "1", 60)])
+    await repo.add_many([snapshot(BTC, "2", 60)])
+    await db_session.commit()
+
+    assert await repo.get_latest(BTC) == snapshot(BTC, "2", 60)
